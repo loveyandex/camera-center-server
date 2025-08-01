@@ -1,0 +1,15 @@
+version: '3.9'
+services:
+  influxdb3:
+    image: influxdb:3.0
+    container_name: influxdb3
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DATABASE=example_db
+      - INFLUXDB_ADMIN_USER=admin
+      - INFLUXDB_ADMIN_PASSWORD=supersecret
+    volumes:
+      - influxdb3-data:/var/lib/influxdb3
+volumes:
+  influxdb3-data:
