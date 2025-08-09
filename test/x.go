@@ -72,6 +72,7 @@ func writeEventsConcurrently(totalEvents, workers int) {
 					Details:    fmt.Sprintf("Event %d: %s", currentCount, eventTypes[rand.Intn(len(eventTypes))]),
 					Timestamp:  time.Now().Unix(),
 				}
+				fmt.Printf("event: %v\n", event)
 
 				// Create InfluxDB point
 				p := influxdb2.NewPoint(
