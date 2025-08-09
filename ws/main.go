@@ -68,18 +68,18 @@ type hub struct {
 }
 
 func newHub() *hub {
-	h := &hub{
+	return &hub{
 		clients:    make(map[*client]bool),
 		register:   make(chan *client),
 		unregister: make(chan *client),
-		broadcast:  make(chan broadcast, 1024),
-		seen:       make(map[string]time.Time),
+		// Large buffer to avoid blocking producers (POST handlers) under burst
+		broadcast: make(chan broadcast, 10000),
+		seen:      make(map[string]time.Time),
 	}
-	return h
 }
 
 func (h *hub) run() {
-	// Periodically GC dedup cache
+	// Periodically GC dedup cache (does not delay broadcasts)
 	go func() {
 		t := time.NewTicker(1 * time.Minute)
 		defer t.Stop()
@@ -99,14 +99,16 @@ func (h *hub) run() {
 		select {
 		case c := <-h.register:
 			h.clients[c] = true
+
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
 				close(c.send)
 				_ = c.conn.Close()
 			}
+
 		case b := <-h.broadcast:
-			// Deduplicate recent events
+			// Deduplicate very recent duplicates across paths
 			if b.key != "" {
 				h.mu.Lock()
 				if ts, ok := h.seen[b.key]; ok && time.Since(ts) < 30*time.Second {
@@ -116,13 +118,13 @@ func (h *hub) run() {
 				h.seen[b.key] = time.Now()
 				h.mu.Unlock()
 			}
-			// Fan-out to matching subscribers
+
+			// Fan-out to matching subscribers (non-blocking; drop slow clients)
 			for c := range h.clients {
 				if len(c.subs) == 0 {
 					select {
 					case c.send <- b.payload:
 					default:
-						// Drop slow client
 						close(c.send)
 						delete(h.clients, c)
 						_ = c.conn.Close()
@@ -144,14 +146,13 @@ func (h *hub) run() {
 }
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	// Adjust origin check for your deployment needs.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 const (
-	writeWait  = 10 * time.Second
+	writeWait  = 5 * time.Second
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
 )
@@ -177,30 +178,27 @@ func serveWS(h *hub, c *gin.Context) {
 	cl := &client{
 		hub:  h,
 		conn: conn,
-		send: make(chan []byte, 256),
+		send: make(chan []byte, 1024),
 		subs: subs,
 	}
 	h.register <- cl
 
-	// Reader
+	// Reader: just to keep connection alive
 	go func() {
-		defer func() {
-			h.unregister <- cl
-		}()
+		defer func() { h.unregister <- cl }()
 		_ = cl.conn.SetReadDeadline(time.Now().Add(pongWait))
 		cl.conn.SetPongHandler(func(string) error {
 			_ = cl.conn.SetReadDeadline(time.Now().Add(pongWait))
 			return nil
 		})
 		for {
-			// We don't expect client messages; just read to handle control frames.
 			if _, _, err := cl.conn.ReadMessage(); err != nil {
 				break
 			}
 		}
 	}()
 
-	// Writer
+	// Writer: writes immediately when messages arrive; ping keeps connection healthy
 	go func() {
 		ticker := time.NewTicker(pingPeriod)
 		defer func() {
