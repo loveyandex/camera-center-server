@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Camera Event Stream</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    #events {
+      margin-top: 20px;
+      max-height: 600px;
+      overflow-y: auto;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    .event {
+      padding: 8px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid #eee;
+    }
+    .event:last-child {
+      border-bottom: none;
+    }
+    .source {
+      font-size: 0.9em;
+      color: #888;
+    }
+  </style>
+</head>
+<body>
+  <h1>📡 Live Camera Events</h1>
+  <div id="events"></div>
+
+  <script>
+    const cameraFilter = ""; // e.g. "cam_001,cam_002" or leave empty for all
+    const wsURL = `ws://localhost:8080/ws${cameraFilter ? "?camera_id=" + cameraFilter : ""}`;
+    const socket = new WebSocket(wsURL);
+
+    const eventsDiv = document.getElementById("events");
+
+    socket.onopen = () => {
+      console.log("WebSocket connected:", wsURL);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const e = data.event;
+        const div = document.createElement("div");
+        div.className = "event";
+        div.innerHTML = `
+          <strong>${e.event_type}</strong> @ ${new Date(e.timestamp * 1000).toLocaleString()}<br/>
+          Camera: ${e.camera_id} | AI: ${e.ai_engine_id} | Confidence: ${e.confidence}<br/>
+          Details: ${e.details}<br/>
+          <span class="source">Source: ${data.source}</span>
+        `;
+        eventsDiv.prepend(div);
+      } catch (err) {
+        console.error("Invalid message:", event.data);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error("WebSocket error:", err);
+    };
+
+    socket.onclose = () => {
+      console.warn("WebSocket closed");
+    };
+  </script>
+</body>
+</html>

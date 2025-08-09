@@ -109,6 +109,76 @@ from(bucket: "%s")
 		})
 	})
 
+	// GET /events/window/?stop=<unix_seconds>
+	// Returns events from all cameras in the 10-minute window ending at 'stop' (or now if not provided),
+	// sorted from latest to oldest.
+	r.GET("/events/window", func(c *gin.Context) {
+
+		bucket := "camera_events"
+
+		stopParam := c.Query("stop") // unix seconds; optional
+
+		// Determine stop time (default: now)
+		stopTime := time.Now().UTC()
+		if stopParam != "" {
+			sec, err := strconv.ParseInt(stopParam, 10, 64)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid stop (unix seconds)"})
+				return
+			}
+			stopTime = time.Unix(sec, 0).UTC()
+		}
+		startTime := stopTime.Add(-10 * time.Minute)
+
+		startRFC3339 := startTime.Format(time.RFC3339Nano)
+		stopRFC3339 := stopTime.Format(time.RFC3339Nano)
+
+		query := fmt.Sprintf(`
+from(bucket: "%s")
+  |> range(start: %s, stop: %s)
+  |> filter(fn: (r) => r._measurement == "events")
+  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+  |> sort(columns: ["_time"], desc: true)
+  |> keep(columns: ["_time","camera_id","ai_engine_id","event_type","confidence","details"])
+`, bucket, startRFC3339, stopRFC3339)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		result, err := queryAPI.Query(ctx, query)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		events := []gin.H{}
+		for result.Next() {
+			rec := result.Record()
+			events = append(events, gin.H{
+				"camera_id":    rec.ValueByKey("camera_id"),
+				"ai_engine_id": rec.ValueByKey("ai_engine_id"),
+				"event_type":   rec.ValueByKey("event_type"),
+				"confidence":   rec.ValueByKey("confidence"),
+				"details":      rec.ValueByKey("details"),
+				"timestamp":    rec.Time().Unix(),
+			})
+		}
+		if result.Err() != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Err().Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"start":  startTime.Unix(),
+			"stop":   stopTime.Unix(),
+			"count":  len(events),
+			"events": events,
+			"order":  "desc", // latest -> oldest
+			"window": "10m",
+			"camera": "all",
+		})
+	})
+
 	// GET /events/:camera_id - Get all events for a camera (oldest to newest), with optional pagination
 	r.GET("/events/:camera_id", func(c *gin.Context) {
 		cameraID := c.Param("camera_id")
