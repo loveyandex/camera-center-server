@@ -14,8 +14,19 @@ services:
       - DOCKER_INFLUXDB_INIT_PASSWORD=supersecretpassword
       - DOCKER_INFLUXDB_INIT_ORG=my_org
       - DOCKER_INFLUXDB_INIT_BUCKET=camera_events
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=
-      
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-token
+    restart: unless-stopped
+
+  camera-api:
+    build: .
+    container_name: camera-api
+    ports:
+      - "8080:8080"
+    environment:
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=my-super-secret-token
+    depends_on:
+      - influxdb
     restart: unless-stopped
 
 volumes:

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,8 +24,18 @@ type Event struct {
 }
 
 func main() {
-	// Initialize InfluxDB client
-	client := influxdb2.NewClient("http://localhost:8086", "my-super-secret-token")
+	// Initialize InfluxDB client with environment variables
+	influxURL := os.Getenv("INFLUXDB_URL")
+	if influxURL == "" {
+		influxURL = "http://localhost:8086"
+	}
+	
+	influxToken := os.Getenv("INFLUXDB_TOKEN")
+	if influxToken == "" {
+		influxToken = "my-super-secret-token"
+	}
+	
+	client := influxdb2.NewClient(influxURL, influxToken)
 	defer client.Close()
 
 	// Get write and query APIs

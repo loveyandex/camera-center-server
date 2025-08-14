@@ -152,9 +152,9 @@ var upgrader = websocket.Upgrader{
 }
 
 const (
-	writeWait  = 5 * time.Second
+	writeWait  = 10 * time.Second
 	pongWait   = 60 * time.Second
-	pingPeriod = (pongWait * 9) / 10
+	pingPeriod = (pongWait * 9) / 10 // ~54s
 )
 
 func serveWS(h *hub, c *gin.Context) {
